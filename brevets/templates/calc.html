@@ -31,7 +31,7 @@
 <body>
 <div class="container">
     <h1>ACP Brevet Times</h1>
-    <p>This worksheet is for ACP-sanctioned brevets between 200 and 1000 kilometers.</p>
+    <p id="message">This worksheet is for ACP-sanctioned brevets between 200 and 1000 kilometers.</p>
     <!--
        If there are any warnings or other messages from a prior
        request to the server,
@@ -80,8 +80,8 @@
             <div class="col-md-12">
                 <table class="control_time_table">
                     <tr>
-                        <th> Miles</th>
-                        <th> Km</th>
+                        <th>Miles</th>
+                        <th>Km</th>
                         <th>Location</th>
                         <th>Open</th>
                         <th>Close</th>
@@ -125,18 +125,20 @@
         // View flask_brevets.py for details.
         function calc_times(control) {
             var km = control.find("input[name='km']").val();
+            var brev_start_date = $("#begin_date").val();
+            var brev_km_dist = $("#brevet_dist_km").val();
             var open_time_field = control.find("input[name='open']");
             var close_time_field = control.find("input[name='close']");
-            // The additions to the Javascript below
-            var brev_km_dist = $("#brevet_dist_km").val() // passing the brevet distance
-            var brev_start_date = $("#begin_date").val()  // passing the brevet beginning place
-            var data_to_send_to_backend = {km: km};
 
-            $.getJSON("_calc_times", {km: km, brev_km_dist: brev_km_dist, brev_start_date: brev_start_date}).done(
+            $.getJSON(TIME_CALC_URL, {
+                km: km,
+                brevet_km_dist: brev_km_dist,
+                brevet_brev_start_date: brev_start_date
+            }).done(
                 function (data) {
-                    var times = data.data_content;
-                    console.log("Got a response: ");
-                    console.log("Response.open = " + times.open);
+                    var times = data.result;
+                    // console.log("Got a response: ");
+                    // console.log("Response.open = " + moment(times.open).format("YYYY-MM-DDTHH:mm"));
                     // This part will automatically fill the open and close slots,
                     // so don't worry about those.
                     open_time_field.val(moment(times.open).format("YYYY-MM-DDTHH:mm"));
@@ -149,139 +151,145 @@
             });
         }
 
-        // When the element with id "insert" is clicked, do the following:
+
         $('#insert').click(function (event) {
-            // Prevent the default form submission behavior
+            // Prevent the default behavior of the click event, which is to navigate to a new page
             event.preventDefault();
 
-            // Get the value of the "brevet_dist_km" input field
-            const brevet = document.getElementById('brevet_dist_km').value;
+            // Get the values of the input elements on the page
+            const brev_start_date = $("#begin_date").val();
+            const brev_km_dist = $("#brevet_dist_km").val();
 
-            // Get the value of the "begin_date" input field
-            const start = document.getElementById('begin_date').value;
+            // Create an array of control point objects from the input elements on the page
+            const control_pts = $('.control').map(function () {
+                const item = $(this);
 
-            // Get the values of the control point input fields and create an array of objects
-            const control_pts = Array.from(document.querySelectorAll('.control')).map(function (item) {
-                // Get the value of the "km" input field for this control point
-                const km = item.querySelector("input[name='km']").value;
-                if (km) { // If the "km" field is not empty
-                    // Get the values of the other input fields for this control point
-                    const open = item.querySelector("input[name='open']").value;
-                    const miles = item.querySelector("input[name='miles']").value;
-                    const location = item.querySelector("input[name='location']").value;
-                    const close = item.querySelector("input[name='close']").value;
-                    // Create an object with the values of all the input fields for this control point
-                    return {km, miles, open, close, location};
+                const miles = item.find("input[name='miles']").val();
+                const km = item.find("input[name='km']").val();
+                const open = item.find("input[name='open']").val();
+                const close = item.find("input[name='close']").val();
+
+                if (km) {
+                    return {km, miles, open, close};
                 }
+            }).get();
+
+            // If there are no control points to submit, show an error message and return
+            if (control_pts.length === 0) {
+                const errorMessage = $("<p>").text("There are no inputs to submit!");
+                $("#error-message").empty().append(errorMessage);
+                return;
+            }
+
+            // If any control point has a distance that is less than zero or greater than 20% of the total distance, show an error message and return
+            if (control_pts.some(control => !(control.km <= 1.2 * brev_km_dist && control.km >= 0))) {
+                const errorMessage = $("<p>").text("The last checkpoint cannot be more than 20 percent of the total distance or any checkpoint cannot be less than zero");
+                $("#error-message").empty().append(errorMessage);
+                return;
+            }
+
+            // Clear the input elements on the page
+            $('.control input').val('');
+
+            // Create an object representing the brevet with the input values and control points
+            const brevet_dict = {brev_start_date, brev_km_dist, control_pts};
+
+            // Send a POST request to the server to insert the brevet into the database
+            fetch(INSERT_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(brevet_dict)
             })
-                // Remove any undefined elements from the array
-                .filter(item => item !== undefined);
-
-            // Send an AJAX POST request to the INSERT_URL with the form data
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', INSERT_URL);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onload = function () {
-                if (xhr.status === 200) { // If the request was successful
-                    const data_content = JSON.parse(xhr.responseText);
-                    if (data_content.status == 1) { // If the response status is 1
-                        console.log('insertion successful:', data_content);
-                        // Clear the values of all input fields for the control points
-                        Array.from(document.querySelectorAll('.control input')).forEach(function (input) {
-                            input.value = '';
-                        });
-                    } else { // If the response status is not 1
-                        console.log('insert failed:', data_content);
+                .then(response => response.json())
+                .then(data => {
+                    // If the insertion is successful and there are control points, log a success message
+                    if (data.status === 1 && control_pts.length) {
+                        console.log("Successfully inserted! Response: ", data);
+                    } else {
+                        // If the insertion is not successful, log an error message
+                        console.log("Insertion failed: ", data);
                     }
-                } else { // If the request was not successful
-                    console.log('oops! error:', xhr.statusText);
-                }
-            };
-            // If there was an error with the request
-            xhr.onerror = function () {
-                console.log('oops! error:', xhr.statusText);
-            };
-            // Send the form data as a JSON string in the request body
-            xhr.send(JSON.stringify({
-                brevet,
-                start,
-                control_pts,
-            }));
+                })
+                .catch(error => {
+                    // If the request fails, log an error message
+                    console.log("Error: ", error);
+                });
         });
+        ;
 
+
+        $('input[name="miles"]').change(
+            function () {
+                var miles = parseFloat($(this).val());
+                var km = (1.609344 * miles).toFixed(6);
+                console.log("Converted " + miles + " miles to " + km + " kilometers");
+                var control_entry = $(this).parents(".control")
+                var target = control_entry.find("input[name='km']");
+                target.val(km);
+                // Then calculate times for this entry
+                calc_times(control_entry);
+            });
+
+        $('input[name="km"]').change(
+            function () {
+                var km = parseFloat($(this).val());
+                var miles = (0.621371 * km).toFixed(6);
+                console.log("Converted " + km + " km to " + miles + " miles");
+                var control_entry = $(this).parents(".control")
+                var target = control_entry.find("input[name='miles']");
+                target.val(miles);
+                // Then calculate times for this entry
+                calc_times(control_entry);
+            });
 
         $(document).ready(function () {
             // Do the following when the page is finished loading
-            //Create events for when any of the miles/kilometers textboxes change
 
-            $('input[name="miles"]').change(
-                function () {
-                    var miles = parseFloat($(this).val());
-                    var km = (1.609344 * miles).toFixed(6);
-                    console.log("Converted " + miles + " miles to " + km + " kilometers");
-                    var control_entry = $(this).parents(".control")
-                    var target = control_entry.find("input[name='km']");
-                    target.val(km);
-                    // Then calculate times for this entry
-                    calc_times(control_entry);
-                });
-
-            $('input[name="km"]').change(
-                function () {
-                    var km = parseFloat($(this).val());
-                    var miles = (0.621371 * km).toFixed(6);
-                    console.log("Converted " + km + " km to " + miles + " miles");
-                    var control_entry = $(this).parents(".control")
-                    var target = control_entry.find("input[name='miles']");
-                    target.val(miles);
-                    // Then calculate times for this entry
-                    calc_times(control_entry);
-                });
-
-
-            // Bind click event to the button with ID 'fetch'
+            // This function runs when the user clicks on an element with the id "fetch"
             $('#fetch').click(function (event) {
-                // Prevent the default behavior of the button click event
+                // Prevent the default behavior of the click event, which is to navigate to a new page
                 event.preventDefault();
 
-                // Get the HTML elements for brevet distance, begin date, and all control points
-                const brevet_km_dist = $('#brevet_dist_km');
-                const begin_date = $('#begin_date');
-                const controls = $('.control');
+                // Get references to the input elements on the page
+                const $beginDate = $("input[name='begin_date']");
+                const $distance = $("select[name='distance']");
+                const $control_pts = $('.control');
 
-                // Send an HTTP GET request to the specified URL and retrieve JSON data
-                $.getJSON(FETCH_URL)
-                    .done(function (content) {
-                        console.log(content);
+                // Send a GET request to the server to fetch data from FETCH_URL
+                $.getJSON(FETCH_URL).done(function (data) {
+                    console.log(data);
+                    if (data.status === 1) {
+                        // If the status of the response is 1, log the data and update the page with the result
+                        console.log("fetch success!: ", data);
+                        const {brev_start_date: startTime, brev_km_dist: brevetDist, control_pts} = data.result;
 
-                        // If the status of the response is 1, update the form with the returned data
-                        if (content.status == 1) {
-                            console.log("fetch success!: ", content);
+                        $beginDate.val(startTime);
+                        $distance.val(brevetDist);
 
-                            // Extract brevet distance, begin date, and control points from the returned data
-                            const {brevet, start, control_pts} = content.data_content;
+                        // Iterate over the control points and update the corresponding input elements on the page
+                        control_pts.forEach((control, index) => {
+                            const $controlItem = $control_pts.eq(index);
 
-                            // Update the HTML form with the extracted data
-                            brevet_km_dist.prop('value', brevet);
-                            begin_date.prop('value', start);
+                            const {miles, km, open, close} = control;
 
-                            control_pts.forEach((control_pt, index) => {
-                                const control = controls.eq(index);
-                                control.find("input[name='open']").prop('value', control_pt.open);
-                                control.find("input[name='km']").prop('value', control_pt.km);
-                                control.find("input[name='miles']").prop('value', control_pt.miles);
-                                control.find("input[name='location']").prop('value', control_pt.location);
-                                control.find("input[name='close']").prop('value', control_pt.close);
-                            });
-                        } else {
-                            // If the status of the response is not 1, log an error message to the console
-                            console.log("Fetch failed: ", content);
-                        }
-                    })
-                    .fail(function (err) {
-                        // If the GET request fails, log an error message to the console
-                        console.log("Error: ", err);
-                    });
+                            $controlItem.find("input[name='miles']").val(miles);
+                            $controlItem.find("input[name='km']").val(km);
+                            $controlItem.find("input[name='open']").val(open);
+                            $controlItem.find("input[name='close']").val(close);
+                        });
+
+                        // Clear any extra control point input elements on the page
+                        $control_pts.slice(control_pts.length).find("input").val('');
+                    } else {
+                        // If the status of the response is not 1, log an error message
+                        console.log("Fetch failed: ", data);
+                    }
+                }).fail(function (err) {
+                    // If the request fails, log an error message
+                    console.log("Error: ", err);
+                });
             });
 
 

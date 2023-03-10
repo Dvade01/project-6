@@ -3,24 +3,24 @@ Resource: Brevets
 """
 from flask import Response, request
 from flask_restful import Resource
+from database.models import Brevet, Controller
 
-# Import the Brevet model from database/models.py
-from database.models import Brevet
 
 class Brevets(Resource):
     def get(self):
-        # Get all Brevets from the database and convert to JSON
+        # Query the database for all instances of the Brevet class and convert to JSON
         json_object = Brevet.objects().to_json()
-        
-        # Return the JSON data with a 200 status code and application/json mimetype
+
+        # Return the JSON response with a content type of application/json and a status code of 200
         return Response(json_object, mimetype="application/json", status=200)
 
     def post(self):
-        # Get the input data from the request as JSON
+        # Retrieve the JSON payload of the POST request
         input_json = request.json
-        
-        # Save the Brevet to the database and get the resulting ID
+
+        # Create a new instance of the Brevet class using the JSON payload as constructor arguments
+        # and save it to the database
         result = Brevet(**input_json).save()
-        
-        # Return the ID of the saved Brevet with a 200 status code
+
+        # Return a JSON response containing the _id of the newly created instance, with a status code of 200
         return {'_id': str(result.id)}, 200

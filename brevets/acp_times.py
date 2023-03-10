@@ -23,9 +23,6 @@ speed_lis = [
 # used in the closed_time function to calculate the special cases
 # and standard "Randonneuring" events time limits as stated on wikipedia
 time_limits = {
-    (0, 600): 15,
-    (600, 1000): 11.428,
-    (1000, 1300): 13.333,
     200: 13.5,
     300: 20,
     400: 27,
@@ -81,16 +78,40 @@ def open_time(control_dist_km, brevet_dist_km, brevet_start_time):
 
 
 def close_time(control_dist_km, brevet_dist_km, brevet_start_time):
-    elapsed = 0  
-    if control_dist_km == 0:
-        elapsed += 1
-      
-    control_dist_km = min(control_dist_km, brevet_dist_km)
-    if control_dist_km <= 60:
-        time_in_hours = control_dist_km / 20.0 + 1.0 
-        return brevet_start_time.shift(minutes=int(time_in_hours * 60))
-      
-    max_speeds = [(0, 600, 15), (600, 1000, 11.428), (1000, 1300, 13.333), (200, 13.5), (300, 20), (400, 27), (600, 40), (1000, 75)]
-    elapsed = control_dist_km / max([end - start for start, end, *_ in max_speeds if end - start <= control_dist_km]) * 60
-    return brevet_start_time.shift(minutes=int(elapsed))
+    """
+    Args:
+        control_dist_km:  number, control distance in kilometers
+        brevet_dist_km: number, nominal distance of the brevet
+            in kilometers, which must be one of 200, 300, 400, 600, or 1000
+            (the only official ACP brevet distances)
+        brevet_start_time:  An arrow object
+    Returns:
+        An arrow object indicating the control close time.
+        This will be in the same time zone as the brevet start time.
+    """
+    # special cases
 
+    # If the control distance is 0, the control closes 1 hour after the start time
+    if control_dist_km == 0:
+        return brevet_start_time.shift(hours=1)
+    # If the control distance is less than or equal to 60 km, the control closes based on a formula
+    # that depends on the control distance
+    if control_dist_km <= 60:
+        hours, minutes = divmod((control_dist_km / 20 + 1) * 60, 60)
+        return brevet_start_time.shift(hours=hours, minutes=minutes)
+    # If the control distance is greater than or equal to the brevet distance, the control closes
+    # at the time limit for the brevet distance
+    if control_dist_km >= brevet_dist_km:
+        return brevet_start_time.shift(hours=time_limits[brevet_dist_km], minutes=0)
+    # If the control distance is between 60 and 600 km, the control closes based on a formula that
+    # depends on the control distance
+    if control_dist_km <= 600:
+        hours, minutes = divmod((control_dist_km / 15) * 60, 60)
+    # If the control distance is greater than 600 km, the control closes based on a formula that
+    # depends on the control distance subtract 600 km
+    else:
+        sub_six = control_dist_km - 600
+        hours = 10 + sub_six / 11.428
+        minutes = 0
+    # Return an arrow object representing the control close time, rounded to the nearest minute
+    return brevet_start_time.shift(hours=int(hours), minutes=int((hours % 1) * 60 + minutes))

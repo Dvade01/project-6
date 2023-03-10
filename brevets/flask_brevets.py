@@ -4,49 +4,50 @@ Replacement for RUSA ACP brevet time calculator
 """
 
 import flask
-from flask import request, current_app, jsonify, make_response
-import arrow  # Replacement for datetime, based on moment.js
-import acp_times  # Brevet time calculations
-#import config
-import datetime
-
-#from mypymongo import brevet_insert, brevet_find
-import logging
-from flask.views import MethodView
 import os
 import requests
-###
-# Globals
-###
+from flask import request
+import arrow
+import acp_times
+import logging
+
 app = flask.Flask(__name__)
-app.debug = True if "DEBUG" not in os.environ else os.environ["DEBUG"]
-port_num = True if "PORT" not in os.environ else os.environ["PORT"]
 
-
-
-
-# Get the API address from an environment variable
 API_ADDR = os.environ["API_ADDR"]
-# Get the API port from an environment variable
 API_PORT = os.environ["API_PORT"]
-# Construct the API URL by concatenating the address and port obtained above
 API_URL = f"http://{API_ADDR}:{API_PORT}/api"
 
-# Define a function to insert a new brevet into the database
-def brevet_insert(brevet, start, control_pts):
-    # Make an HTTP POST request to the API to insert a new brevet
-    _id = requests.post(f"{API_URL}/brevets",json={"start": start,"brevet": brevet,"control_pts": control_pts}).json()
-    # Return the ID of the new brevet that was inserted
-    return _id
 
-# Define a function to find the most recent brevet in the database
+def brevet_insert(brev_start_date, brev_km_dist, control_pts):
+    """
+    Function that sends a POST request to the Flask API to insert a new brevet table into the database.
+    """
+    # Send a POST request to the API with the brevet table data as JSON
+    response = requests.post(f"{API_URL}/brevets",
+                             json={"brev_start_date": brev_start_date, "brev_km_dist": brev_km_dist,
+                                   "control_pts": control_pts}).json()
+
+    # Return the ID of the newly inserted brevet table
+    return response
+
+
 def brevet_find():
-    # Make an HTTP GET request to the API to get a list of all brevets in the database
-    lists = requests.get(f"{API_URL}/brevets").json()
-    # Get the most recent brevet from the list
-    brevet = lists[-1]
-    # Return a tuple containing the start time, brevet distance, and control points of the most recent brevet
-    return ["start"], brevet["brevet"], brevet["control_pts"]
+    """
+    Function that sends a GET request to the Flask API to fetch the latest brevet table from the database.
+    """
+    # Send a GET request to the API to fetch all brevet tables
+    response = requests.get(f"{API_URL}/brevets").json()
+
+    # If there are no brevet tables, return None for all values
+    if not response:
+        return None, None, None
+
+    # Get the latest brevet table from the response
+    brevet = response[-1]
+
+    # Return the brev_start_date, brev_km_dist, and control_pts values of the latest brevet table
+    return brevet["brev_start_date"], brevet["brev_km_dist"], brevet["control_pts"]
+
 
 ###
 # Pages
@@ -73,124 +74,109 @@ def page_not_found(error):
 #
 ###############
 
-# Importing required modules
-@app.route("/insert_brevet", methods=["POST"])
+
+@app.route("/insert_brevet", methods=['POST'])
 def insert_brevet():
-    """Handles POST requests to insert brevet data into a database table
+    """
+    Route function that receives a POST request with JSON data in the body. Expects JSON data with the following keys:
+    "brev_start_date", "brev_km_dist", and "control_pts". Calls the function brevet_insert to insert the data into a
+    database table. Returns a JSON response with a status code, a message, and a table id.
 
     Returns:
-        A JSON response containing the status of the insertion and any error messages
+        JSON response with keys "result", "status", "message", and "mongo_id".
     """
 
-    input_json = request.json
+    # Get the JSON data from the request body
+    input_json = request.get_json(force=True)
 
-    # A list of keys that must be in the JSON input data
-    required_keys = ["brevet", "start", "control_pts"]
+    # Set a default response with an error message
+    response = {"result": {}, "status": 0, "message": "Invalid input format", "mongo_id": None}
 
-    # A dictionary mapping keys to their expected data types
-    required_types = {"brevet": str, "start": str, "control_pts": list}
+    # Check if the required keys are in the JSON data
+    if all(key in input_json for key in ("brev_start_date", "brev_km_dist", "control_pts")):
+        # Extract the values for brev_start_date, brev_km_dist, and control_pts
+        brev_start_date = input_json["brev_start_date"]
+        brev_km_dist = input_json["brev_km_dist"]
+        control_pts = input_json["control_pts"]
 
-    # A helper function that generates error messages for missing or invalid data
-    def generate_error_messages():
-        for key in required_keys:
-            if key not in input_json:
-                yield f"Missing required key: {key}"
-        for key, value_type in required_types.items():
-            if key in input_json and not isinstance(input_json[key], value_type):
-                yield f"{key} should be of type {value_type.name}"
-        for i, control_pt in enumerate(input_json.get("control_pts", [])):
-            if not isinstance(control_pt, dict):
-                yield f"control_pt {i} should be a dict"
+        # Call the brevet_insert function to insert the data into a database table
+        table_id = brevet_insert(brev_start_date, brev_km_dist, control_pts)
 
-    # Call the error message generator and store the results in a list
-    errors = list(generate_error_messages())
+        # Update the response with a success message and the table id
+        response = {key: {} if key == "result" else None for key in response}
+        response["result"] = {}
+        response["status"] = 1
+        response["message"] = "Insert Success!"
+        response["mongo_id"] = table_id
 
-    # If there are any errors, return a JSON response with the error message
-    if errors:
-        error_message = ", ".join(errors)
-        return flask.jsonify(data_content={}, response="Input Error", status=0, mongo_id='None', errors=error_message)
-
-    # Call a function to insert the data into a database table and store the table ID
-    table_id = brevet_insert(input_json["brevet"], input_json["start"], input_json["control_pts"])
-
-    # Return a JSON response indicating success and the table ID
-    return flask.jsonify(data_content={}, response="Inserted!", status=1, mongo_id=table_id)
-
-
-
+    # Return the response as a JSON object
+    return flask.jsonify(response)
 
 
 @app.route("/_calc_times")
 def _calc_times():
-    # Log request
-    app.logger.debug("Got a JSON request")
+    try:
+        # Parse request arguments
+        km = request.args.get('km', type=float)
+        brev_km_dist = request.args.get('brevet_km_dist', type=float)
+        brev_start_date = request.args.get('brevet_brev_start_date', type=str)
 
-    # Retrieve request parameters
-    km = request.args.get('km', 999, type=float)
-    brev_km_dist = request.args.get('brev_km_dist', default=None, type=int)
-    if brev_km_dist is None:
-        # If 'brev_km_dist' is not provided or is not a valid integer, raise an HTTPException with a 400 Bad Request status code
-        raise BadRequest("Missing or invalid 'brev_km_dist' parameter")
-    brev_start = request.args.get('brev_start_date', default=None, type=str)
-    if brev_start is None:
-        # If 'brev_start_date' is not provided or is not a valid string, raise an HTTPException with a 400 Bad Request status code
-        raise BadRequest("Missing or invalid 'brev_start_date' parameter")
+        # Check for missing arguments
+        if any(arg is None for arg in [km, brev_km_dist, brev_start_date]):
+            raise ValueError("Missing one or more required parameters")
 
-    # Convert start date to Arrow object for calculations
-    start_time = arrow.get(brev_start)
+        # Parse date and time
+        brev_start_time = arrow.get(brev_start_date).to('utc')
 
-    # Log parameters for debugging purposes
-    app.logger.debug("km={}".format(km))
-    app.logger.debug("brev_dist={}".format(brev_km_dist))
-    app.logger.debug("brev_start={}".format(brev_start))
+        # Calculate open and close times
+        open_time = acp_times.open_time(km, brev_km_dist, brev_start_time)
+        close_time = acp_times.close_time(km, brev_km_dist, brev_start_time)
 
-    # Calculate open and close times based on input parameters
-    open_time = acp_times.open_time(km, brev_km_dist, start_time)  # calculate open time
-    open_time_str = open_time.format('YYYY-MM-DDTHH:mm')  # Removed isoformat for readability
+        # Format results as JSON
+        response = {"open": open_time.format('YYYY-MM-DDTHH:mm'),
+                    "close": close_time.format('YYYY-MM-DDTHH:mm')}
+        return flask.jsonify(result=response)
 
-    close_time = acp_times.close_time(km, brev_km_dist, start_time)  # calculate close time
-    close_time_str = close_time.format('YYYY-MM-DDTHH:mm')  # Removed isoformat for readability
-
-    data_content = {"open": open_time_str, "close": close_time_str}
-    return flask.jsonify(data_content=data_content)
+    except (ValueError, TypeError, arrow.parser.ParserError) as e:
+        app.logger.error(f"Error: {e}")
+        error_message = {"error": str(e)}
+        return flask.jsonify(error_message), 400
 
 
+@app.route("/fetch_brevet")
+def fetch_brevet():
+    """
+    Route function that fetches the latest brevet table from the database. Calls the function brevet_find to retrieve
+    the brev_start_date, brev_km_dist, and control_pts values. Returns a JSON response with a status code, a message,
+    and the fetched data.
+
+    Returns:
+        JSON response with keys "result", "status", and "message".
+    """
+
+    # Call the brevet_find function to retrieve the latest brevet table from the database
+    brev_start_date, brev_km_dist, control_pts = brevet_find()
+
+    # Set a default response with an error message
+    response = {"result": {}, "status": 0, "message": "Oops, couldn't fetch any tables"}
+
+    # Check if the values for brev_start_date, brev_km_dist, and control_pts were retrieved successfully
+    if brev_start_date is not None and brev_km_dist is not None and control_pts is not None:
+        # Update the response with the fetched data and a success message
+        response["result"] = {"brev_start_date": brev_start_date, "brev_km_dist": brev_km_dist,
+                              "control_pts": control_pts}
+        response["status"] = 1
+        response["message"] = "Table fetched!"
+
+    # Return the response as a JSON object
+    return flask.jsonify(response)
 
 
-
-class FetchBrevetAPI(MethodView):
-    """Class-based view to handle GET requests to fetch brevet data from an API endpoint"""
-
-    def get(self):
-        """Handles GET requests to fetch brevet data from an API endpoint
-
-        Returns:
-            A JSON response containing the fetched data and a status message
-        """
-
-        # Log a debug message
-        app.logger.debug('Got a JSON request: FETCH')
-
-        # Call brevet_find function to get brevet, start, and control_pts data
-        brevet, start, control_pts = brevet_find()
-
-        # Create a response dictionary containing data_content, status, and response
-        response = {
-            'data_content': {'brevet': brevet, 'start': start, 'control_pts': control_pts},
-            'status': 1 if brevet and start and control_pts else 0,
-            'response': 'Successfully fetched a table!' if brevet and start and control_pts else "Something went wrong, couldn't fetch any tables!"
-        }
-
-        # Return the response in JSON format
-        return jsonify(**response)
-
-
-# Add a URL rule to map the /fetch_brevet endpoint to the FetchBrevetAPI view
-app.add_url_rule('/fetch_brevet', view_func=FetchBrevetAPI.as_view('fetch_brevet'))
 #############
 
-app.debug = os.environ["DEBUG"] # removed config because no use of it.
-
+app.debug = os.environ["DEBUG"]
+if app.debug:
+    app.logger.setLevel(logging.DEBUG)
 
 if __name__ == "__main__":
     app.run(port=os.environ["PORT"], host="0.0.0.0")
