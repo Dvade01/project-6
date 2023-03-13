@@ -23,12 +23,12 @@ def brevet_insert(brev_start_date, brev_km_dist, control_pts):
     Function that sends a POST request to the Flask API to insert a new brevet table into the database.
     """
     # Send a POST request to the API with the brevet table data as JSON
-    response = requests.post(f"{API_URL}/brevets",
+    _id = requests.post(f"{API_URL}/brevets",
                              json={"brev_start_date": brev_start_date, "brev_km_dist": brev_km_dist,
                                    "control_pts": control_pts}).json()
 
     # Return the ID of the newly inserted brevet table
-    return response
+    return _id
 
 
 def brevet_find():

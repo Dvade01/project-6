@@ -6,7 +6,7 @@ from flask_restful import Resource
 from database.models import Brevet, Checkpoint
 
 
-class Brevet(Resource):
+class BrevetResource(Resource):
     def get(self, _id):
 
         # Retrieve the Brevet instance with the specified _id from the database and convert to JSON
@@ -20,8 +20,16 @@ class Brevet(Resource):
         # Retrieve the JSON payload of the PUT request
         input_json = request.json
 
-        # Update the Brevet instance with the specified _id with the new data from the JSON payload
-        Brevet.objects.get(id=_id).update(**input_json)
+        # Retrieve the Brevet instance with the specified _id from the database
+        brevet = Brevet.objects.get(id=_id)
+
+        # Update the Brevet instance with the new data from the JSON payload
+        for key, value in input_json.items():
+            if hasattr(brevet, key):
+                setattr(brevet, key, value)
+
+        # Save the updated Brevet instance to the database
+        brevet.save()
 
         # Return an empty response with a status code of 200
         return '', 200
