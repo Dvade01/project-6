@@ -1,7 +1,7 @@
 from mongoengine import *
 
 
-class Controller(EmbeddedDocument):
+class Checkpoint(EmbeddedDocument):
     """
     Class that defines a control point for a brevet.
 
@@ -30,4 +30,4 @@ class Brevet(Document):
     """
     brev_km_dist = FloatField(required=True)
     brev_start_date = StringField(required=True)
-    control_pts = EmbeddedDocumentListField(Controller, required=True)
+    control_pts = EmbeddedDocumentListField(Checkpoint, required=True)
